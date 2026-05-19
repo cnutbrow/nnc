@@ -126,6 +126,16 @@ def main():
         sys.exit(1)
 
     # ── 3. Build datasets ─────────────────────────────────────────────────────
+    # Keep only the most recent year so train/val/test share the same market
+    # regime. Using 3 years causes train→val distribution shift (different
+    # bull/bear cycles) which makes the model predict the wrong direction.
+    KEEP_HOURS = 365 * 24
+    featured = {
+        sym: df.tail(KEEP_HOURS).reset_index(drop=True)
+        if len(df) > KEEP_HOURS else df
+        for sym, df in featured.items()
+    }
+    logger.info(f'Filtered to last {KEEP_HOURS:,} hours per symbol')
     logger.info('Building datasets…')
     train_ds, val_ds, test_ds, test_dfs, num_coins = build_datasets(
         featured,
@@ -197,7 +207,7 @@ def main():
     logger.info('Saved test_dfs.pkl and model_meta.pkl for backtest')
 
     print('\n=== Training complete ===')
-    print(f'Test directional accuracy (24h): {dir_acc:.1%}')
+    print(f'Test directional accuracy  (1h): {dir_acc:.1%}')
     print(f'Brier score                    : {brier:.4f}  (random baseline = 0.25)')
     print(f'Information coefficient        : {ic:.4f}')
     print(f'Best validation loss      : {min(history["val_loss"]):.6f}')
