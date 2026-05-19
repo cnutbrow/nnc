@@ -5,6 +5,8 @@ plus 8 cross-market features derived from BTC and ETH as leading indicators.
 All indicators are computed causally (no look-ahead).
 """
 
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import ta
@@ -109,16 +111,23 @@ FEATURE_COLS = [
     'mfi14', 'cmf20', 'obv_ratio',
     'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos',
     # ── Multi-timeframe features (6) — added by add_multitf_features() ──────────
-    # 4-hour aggregated: capture intraday session momentum
     'rsi14_4h', 'atr14_4h', 'vol_ratio_4h', 'macd_signal_4h',
-    # Daily aggregated: macro trend context
     'rsi14_1d', 'atr14_1d',
     # ── Market-context features (9) — added by add_market_features() ────────────
     'btc_ret_1h', 'btc_ret_4h', 'btc_rsi14', 'btc_adx',
     'btc_trend', 'btc_vol_spike', 'eth_ret_1h', 'btc_corr24',
-    'eth_btc_ratio',     # ETH/ETH-BTC_MA - 1: altcoin risk-appetite signal
+    'eth_btc_ratio',
     # ── Market breadth (1) — added by add_market_breadth() in train.py ──────────
-    'market_breadth',    # fraction of universe with positive 1h return [0, 1]
+    'market_breadth',
+    # ── Derivatives features (6) — added by add_derivatives_features() ──────────
+    # Funding rate: market sentiment / leverage positioning signal
+    'funding_rate',      # current 8h funding (positive = longs crowded)
+    'funding_ma24h',     # 24h moving average (trend in positioning)
+    'funding_zscore',    # z-score vs 14-day window (how extreme is current rate)
+    # Open interest: leverage and trend-strength signal
+    'oi_change_1h',      # % change in OI vs 1h ago
+    'oi_change_24h',     # % change in OI vs 24h ago
+    'oi_ma24h_ratio',    # current OI / 24h MA (>1 = elevated leverage)
 ]
 
 
@@ -298,6 +307,83 @@ def add_market_breadth(
         out[sym] = df2
 
     return out
+
+
+def add_derivatives_features(
+    df: pd.DataFrame,
+    deriv_df: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """
+    Merge funding rate and open interest features into a per-coin DataFrame.
+
+    If deriv_df is None (no perpetual market for this coin), all derivative
+    columns are zero-filled — the model learns they carry no information.
+
+    All features are computed causally:
+      - funding_rate  : forward-filled settled rate (always known at time t)
+      - oi_change_*   : uses only past OI values
+      - funding_zscore: rolling window over past data only
+
+    Args:
+        df:       per-coin featured DataFrame (already has 'timestamp' column)
+        deriv_df: hourly DataFrame with [timestamp, funding_rate, oi_usd]
+                  from data.funding.fetch_symbol_derivatives()
+    """
+    df = df.copy()
+    DERIV_COLS = ['funding_rate', 'funding_ma24h', 'funding_zscore',
+                  'oi_change_1h', 'oi_change_24h', 'oi_ma24h_ratio']
+
+    if deriv_df is None or deriv_df.empty:
+        for col in DERIV_COLS:
+            df[col] = 0.0
+        return df
+
+    # Align timestamps: normalise both to UTC, merge on nearest hour
+    deriv = deriv_df.copy()
+    deriv['timestamp'] = pd.to_datetime(deriv['timestamp'], utc=True).dt.floor('h')
+    df_ts = pd.to_datetime(df['timestamp'], utc=True).dt.floor('h')
+
+    deriv = deriv.drop_duplicates('timestamp').sort_values('timestamp')
+
+    # Compute derived funding features on the raw 8h-resolution data before
+    # reindexing so rolling windows operate on the natural 8h cadence.
+    if 'funding_rate' in deriv.columns:
+        fr = deriv.set_index('timestamp')['funding_rate']
+        # 24h MA = 3 × 8h periods
+        deriv = deriv.set_index('timestamp')
+        deriv['funding_ma24h'] = fr.rolling(3, min_periods=1).mean()
+        # z-score vs 14-day (42 × 8h) rolling window
+        roll = fr.rolling(42, min_periods=5)
+        deriv['funding_zscore'] = ((fr - roll.mean()) / roll.std().clip(lower=1e-9)).clip(-5, 5)
+        deriv = deriv.reset_index()
+    else:
+        deriv['funding_rate']   = 0.0
+        deriv['funding_ma24h']  = 0.0
+        deriv['funding_zscore'] = 0.0
+
+    if 'oi_usd' in deriv.columns:
+        oi = deriv.set_index('timestamp')['oi_usd']
+        deriv = deriv.set_index('timestamp')
+        deriv['oi_change_1h']    = oi.pct_change(1).clip(-1, 5)
+        deriv['oi_change_24h']   = oi.pct_change(24).clip(-1, 5)
+        ma24                      = oi.rolling(24, min_periods=1).mean()
+        deriv['oi_ma24h_ratio']  = (oi / ma24.replace(0, np.nan) - 1).clip(-2, 5)
+        deriv = deriv.reset_index()
+    else:
+        for col in ['oi_change_1h', 'oi_change_24h', 'oi_ma24h_ratio']:
+            deriv[col] = 0.0
+
+    # Reindex to hourly timestamps matching the OHLCV data
+    deriv_hourly = (
+        deriv.set_index('timestamp')[DERIV_COLS]
+             .reindex(df_ts.values, method='ffill')
+    )
+
+    for col in DERIV_COLS:
+        df[col] = deriv_hourly[col].values
+
+    df[DERIV_COLS] = df[DERIV_COLS].ffill().fillna(0.0)
+    return df
 
 
 def make_targets(df: pd.DataFrame, horizons: list[int]) -> pd.DataFrame:

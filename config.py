@@ -36,7 +36,7 @@ class DataConfig:
 class FeatureConfig:
     sequence_length: int = 168       # 7 days of hourly context
     target_horizons: List[int] = field(default_factory=lambda: [1, 4, 12, 24])
-    n_features: int = 51             # len(data.features.FEATURE_COLS)
+    n_features: int = 57             # len(data.features.FEATURE_COLS)
 
 
 @dataclass

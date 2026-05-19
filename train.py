@@ -47,7 +47,9 @@ def main():
     from data.collector import fetch_all_symbols
     from data.features import (compute_features, add_multitf_features,
                                add_market_features, add_market_breadth,
+                               add_derivatives_features,
                                make_targets, FEATURE_COLS, TARGET_COLS)
+    from data.funding import fetch_all_derivatives
     from model.architecture import CryptoGRU
     from model.dataset import build_datasets
     from training.trainer import train
@@ -125,17 +127,18 @@ def main():
         logger.error('No valid feature data.')
         sys.exit(1)
 
+    # ── 2b. Derivatives features (funding rates + open interest) ─────────────
+    logger.info('Fetching derivatives data (funding rates + open interest)…')
+    deriv_data = fetch_all_derivatives(
+        list(featured.keys()),
+        since_days=data_cfg.since_days + 30,   # slight buffer
+    )
+    for symbol in list(featured.keys()):
+        deriv_df = deriv_data.get(symbol)
+        featured[symbol] = add_derivatives_features(featured[symbol], deriv_df)
+    logger.info('Derivatives features merged')
+
     # ── 3. Build datasets ─────────────────────────────────────────────────────
-    # Keep only the most recent year so train/val/test share the same market
-    # regime. Using 3 years causes train→val distribution shift (different
-    # bull/bear cycles) which makes the model predict the wrong direction.
-    KEEP_HOURS = 365 * 24
-    featured = {
-        sym: df.tail(KEEP_HOURS).reset_index(drop=True)
-        if len(df) > KEEP_HOURS else df
-        for sym, df in featured.items()
-    }
-    logger.info(f'Filtered to last {KEEP_HOURS:,} hours per symbol')
     logger.info('Building datasets…')
     train_ds, val_ds, test_ds, test_dfs, num_coins = build_datasets(
         featured,
