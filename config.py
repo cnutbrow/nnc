@@ -27,8 +27,6 @@ class DataConfig:
     timeframe: str = '1h'
     since_days: int = 1095  # 3 years of hourly data
     data_dir: str = 'data/raw'
-    # Tried in order; first exchange that returns ≥500 rows wins per symbol.
-    # Binance excluded — returns 451 in geo-restricted regions.
     exchanges: List[str] = field(default_factory=lambda: [
         'bybit', 'kucoin', 'okx', 'kraken', 'gate', 'mexc'
     ])
@@ -38,65 +36,53 @@ class DataConfig:
 class FeatureConfig:
     sequence_length: int = 168       # 7 days of hourly context
     target_horizons: List[int] = field(default_factory=lambda: [1, 4, 12, 24])
-    n_features: int = 51             # from data.features.FEATURE_COLS
+    n_features: int = 51             # len(data.features.FEATURE_COLS)
 
 
 @dataclass
 class ModelConfig:
-    tcn_channels: List[int] = field(default_factory=lambda: [32, 64, 128])
-    kernel_size: int = 3
-    transformer_d_model: int = 128
-    transformer_nhead: int = 4
-    transformer_layers: int = 3
-    transformer_ff_dim: int = 256
-    dropout: float = 0.25
-    output_dim: int = 4              # one per target horizon
-    patch_size: int = 12             # PatchTST: TCN outputs grouped into 12-bar patches
-                                     # seq_len=168 → 14 patch tokens for Transformer
-    drop_path_rate: float = 0.10     # max stochastic-depth drop prob (linearly scaled per TCN block)
+    hidden_dim: int = 128
+    n_layers: int = 2
+    dropout: float = 0.15
 
 
 @dataclass
 class TrainingConfig:
     batch_size: int = 64
-    learning_rate: float = 2e-4
-    weight_decay: float = 1e-3
+    learning_rate: float = 1e-3
+    weight_decay: float = 1e-4
     epochs: int = 150
-    patience: int = 25               # early stopping
+    patience: int = 30
     grad_clip: float = 1.0
-    warmup_epochs: int = 5
+    warmup_epochs: int = 3
     train_ratio: float = 0.70
     val_ratio: float = 0.15
-    # test is remainder (0.15)
     model_dir: str = 'models'
     checkpoint_name: str = 'best_model.pt'
 
 
 @dataclass
 class TradingConfig:
-    # Signal thresholds (predicted log-return)
-    # Grid-searched; 0.006 filters noise while keeping ample trade frequency.
-    long_entry_threshold: float = 0.006    # +0.6% predicted composite return to go long
-    short_entry_threshold: float = -0.006  # -0.6% predicted composite return to go short
-    close_threshold: float = 0.002         # Close position when signal reverses past ±0.2%
+    # Thresholds in probability space [0, 1]
+    # prob > 0.55 → long, prob < 0.45 → short
+    long_entry_threshold: float = 0.55
+    short_entry_threshold: float = 0.45
+    close_threshold: float = 0.50
 
     # Risk management
-    # 4% SL / 8% TP (1:2 R:R) maximises Sharpe vs tighter 3/6 ratios.
-    stop_loss_pct: float = 0.04            # 4% stop-loss per trade
-    take_profit_pct: float = 0.08          # 8% take-profit per trade
-    max_position_pct: float = 0.12         # Max 12% of portfolio per asset
-    max_open_positions: int = 5            # Across all assets
+    stop_loss_pct: float = 0.04
+    take_profit_pct: float = 0.08
+    max_position_pct: float = 0.12
+    max_open_positions: int = 5
 
     # Execution
-    transaction_cost: float = 0.001        # 0.1% taker fee
-    slippage: float = 0.0005               # 0.05% estimated slippage
+    transaction_cost: float = 0.001
+    slippage: float = 0.0005
     initial_capital: float = 100_000.0
 
-    # Kelly fraction (0 = equal-weight, 1 = full Kelly)
-    kelly_fraction: float = 0.25           # quarter-Kelly for safety
+    kelly_fraction: float = 0.25
 
-    # Regime filter — only open new positions when BTC confirms the macro environment
+    # Regime filter
     use_regime_filter: bool = True
-    regime_adx_min: float = 0.18          # BTC ADX/100 must exceed this (real trend exists)
-    regime_trend_min: float = -0.05       # BTC must be above this × 200h EMA for longs
-    #   e.g. -0.05 = allow longs until BTC is >5% below its 200h EMA
+    regime_adx_min: float = 0.18
+    regime_trend_min: float = -0.05

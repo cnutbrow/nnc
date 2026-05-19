@@ -85,10 +85,11 @@ class BacktestEngine:
         # reflects pure model quality independent of the trading rules.
         try:
             from scipy.stats import spearmanr as _spearmanr
-            _all_p = np.vstack([d['preds']   for d in sym_data.values()])
+            _all_p = np.concatenate([d['preds'][:, 0]   for d in sym_data.values()])
             _all_t = np.vstack([d['targets'] for d in sym_data.values()])
-            ic_1h  = float(_spearmanr(_all_p[:, 0],  _all_t[:, 0]).statistic)
-            ic_24h = float(_spearmanr(_all_p[:, -1], _all_t[:, -1]).statistic)
+            # IC: Spearman(P(up), actual 1h return) and Spearman(P(up), actual 24h return)
+            ic_1h  = float(_spearmanr(_all_p, _all_t[:, 0]).statistic)
+            ic_24h = float(_spearmanr(_all_p, _all_t[:, -1]).statistic)
             logger.info(f'IC(1h): {ic_1h:.4f}   IC(24h): {ic_24h:.4f}')
         except Exception:
             ic_1h = ic_24h = float('nan')

@@ -36,10 +36,8 @@ def parse_args():
 
 
 def buy_and_hold_equity(symbol_dfs: dict, initial_capital: float) -> np.ndarray:
-    """Equal-weight buy-and-hold baseline using first symbol for length."""
-    # Use BTC/USDT or first available
-    sym = next((s for s in symbol_dfs if 'BTC' in s), next(iter(symbol_dfs)))
-    df  = symbol_dfs[sym]
+    sym    = next((s for s in symbol_dfs if 'BTC' in s), next(iter(symbol_dfs)))
+    df     = symbol_dfs[sym]
     prices = df['close'].values
     units  = (initial_capital / len(symbol_dfs)) / prices[0]
     return np.array([units * p * len(symbol_dfs) for p in prices])
@@ -50,10 +48,9 @@ def main():
 
     from config import ModelConfig, TradingConfig
     from data.features import FEATURE_COLS
-    from model.architecture import CryptoTransformer
+    from model.architecture import CryptoGRU
     from trading.backtest import BacktestEngine
 
-    # ── Load model ─────────────────────────────────────────────────────────────
     if not os.path.exists(args.checkpoint):
         logger.error(f'Checkpoint not found: {args.checkpoint}')
         logger.error('Run train.py first.')
@@ -62,37 +59,19 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else
                           'mps'  if torch.backends.mps.is_available() else 'cpu')
 
-    model_cfg  = ModelConfig()
-    trade_cfg  = TradingConfig()
+    model_cfg = ModelConfig()
+    trade_cfg = TradingConfig()
 
-    # Load num_coins saved during training so the model architecture matches
-    # the checkpoint exactly (coin embedding layer depends on it).
-    meta_path = os.path.join(os.path.dirname(args.checkpoint), 'model_meta.pkl')
-    num_coins = 0
-    if os.path.exists(meta_path):
-        import pickle as _pkl
-        with open(meta_path, 'rb') as _f:
-            num_coins = _pkl.load(_f).get('num_coins', 0)
-
-    model = CryptoTransformer(
+    model = CryptoGRU(
         n_features=len(FEATURE_COLS),
-        tcn_channels=model_cfg.tcn_channels,
-        kernel_size=model_cfg.kernel_size,
-        d_model=model_cfg.transformer_d_model,
-        nhead=model_cfg.transformer_nhead,
-        n_transformer_layers=model_cfg.transformer_layers,
-        ff_dim=model_cfg.transformer_ff_dim,
+        hidden_dim=model_cfg.hidden_dim,
+        n_layers=model_cfg.n_layers,
         dropout=model_cfg.dropout,
-        output_dim=model_cfg.output_dim,
-        num_coins=num_coins,
-        patch_size=model_cfg.patch_size,
-        drop_path_rate=model_cfg.drop_path_rate,
     )
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
     model.eval().to(device)
     logger.info(f'Loaded model from {args.checkpoint}')
 
-    # ── Load test data ─────────────────────────────────────────────────────────
     pkl_path = 'models/test_dfs.pkl'
     if not os.path.exists(pkl_path):
         logger.error(f'{pkl_path} not found. Run train.py first.')
@@ -103,19 +82,16 @@ def main():
 
     logger.info(f'Running backtest on {len(test_dfs)} symbols…')
 
-    # ── Run backtest ───────────────────────────────────────────────────────────
     engine  = BacktestEngine(model, device, trade_cfg)
     results = engine.run(test_dfs)
 
-    stats = results['stats']
-    eq    = results['equity_curve']
+    stats  = results['stats']
+    eq     = results['equity_curve']
     trades = results['trades']
 
-    # ── Buy-and-hold baseline (equal-weight BTC) ──────────────────────────────
     bh_eq  = buy_and_hold_equity(test_dfs, trade_cfg.initial_capital)
     bh_ret = float(bh_eq[-1] / bh_eq[0] - 1) if len(bh_eq) > 1 else 0.0
 
-    # ── Print results ──────────────────────────────────────────────────────────
     print('\n' + '=' * 60)
     print('  BACKTEST RESULTS')
     print('=' * 60)
@@ -141,7 +117,6 @@ def main():
         print(trade_df.nlargest(5, 'pnl')[['symbol', 'direction', 'entry_price',
                                             'exit_price', 'pnl', 'exit_reason']].to_string(index=False))
 
-    # ── Plot ──────────────────────────────────────────────────────────────────
     if args.plot or args.output:
         _plot(eq, trade_cfg.initial_capital, args.plot, args.output)
 
@@ -159,16 +134,14 @@ def _plot(eq: np.ndarray, initial: float, show: bool, save_path: str):
 
     x = list(range(len(eq)))
 
-    # Equity
-    fig.add_trace(go.Scatter(x=x, y=eq, name='Strategy', line=dict(color='#00d4aa', width=2)),
-                  row=1, col=1)
+    fig.add_trace(go.Scatter(x=x, y=eq, name='Strategy',
+                             line=dict(color='#00d4aa', width=2)), row=1, col=1)
     fig.add_hline(y=initial, line_dash='dash', line_color='gray', row=1, col=1)
 
-    # Drawdown
     peak = np.maximum.accumulate(eq)
     dd   = (eq - peak) / np.where(peak == 0, 1, peak) * 100
     fig.add_trace(go.Scatter(x=x, y=dd, name='Drawdown %',
-                              fill='tozeroy', line=dict(color='#ff4d4d', width=1)),
+                             fill='tozeroy', line=dict(color='#ff4d4d', width=1)),
                   row=2, col=1)
 
     fig.update_layout(
