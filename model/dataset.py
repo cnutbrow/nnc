@@ -60,9 +60,9 @@ class CryptoSequenceDataset(Dataset):
         std  = norm_slice.std(axis=0, keepdims=True).clip(min=1e-8)
         seq  = (seq - mean) / std
 
-        # Binary direction target: 1h return > 0
-        raw_1h = self.targets[end - 1, 0]
-        target = np.float32(raw_1h > 0)
+        # Binary direction target: 24h return > 0 (more persistent signal than 1h)
+        raw_24h = self.targets[end - 1, 3]
+        target  = np.float32(raw_24h > 0)
 
         coin = torch.tensor(self.coin_idx, dtype=torch.long)
         return torch.from_numpy(seq), coin, torch.tensor(target)

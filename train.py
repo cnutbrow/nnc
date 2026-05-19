@@ -197,9 +197,9 @@ def main():
     logger.info('Saved test_dfs.pkl and model_meta.pkl for backtest')
 
     print('\n=== Training complete ===')
-    print(f'Test directional accuracy : {dir_acc:.1%}')
-    print(f'Brier score               : {brier:.4f}  (random baseline = 0.25)')
-    print(f'Information coefficient   : {ic:.4f}')
+    print(f'Test directional accuracy (24h): {dir_acc:.1%}')
+    print(f'Brier score                    : {brier:.4f}  (random baseline = 0.25)')
+    print(f'Information coefficient        : {ic:.4f}')
     print(f'Best validation loss      : {min(history["val_loss"]):.6f}')
     print(f'Checkpoint                : models/{train_cfg.checkpoint_name}')
 
