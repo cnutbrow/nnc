@@ -338,10 +338,12 @@ def add_derivatives_features(
             df[col] = 0.0
         return df
 
-    # Align timestamps: normalise both to UTC, merge on nearest hour
+    # Align timestamps: strip timezone from both sides so dtypes match for reindex
     deriv = deriv_df.copy()
-    deriv['timestamp'] = pd.to_datetime(deriv['timestamp'], utc=True).dt.floor('h')
-    df_ts = pd.to_datetime(df['timestamp'], utc=True).dt.floor('h')
+    deriv['timestamp'] = (pd.to_datetime(deriv['timestamp'], utc=True)
+                            .dt.tz_localize(None).dt.floor('h'))
+    df_ts = (pd.to_datetime(df['timestamp'])
+               .dt.tz_localize(None).dt.floor('h'))
 
     deriv = deriv.drop_duplicates('timestamp').sort_values('timestamp')
 
