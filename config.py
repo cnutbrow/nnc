@@ -41,20 +41,20 @@ class FeatureConfig:
 
 @dataclass
 class ModelConfig:
-    hidden_dim: int = 128
-    n_layers: int = 2
-    dropout: float = 0.15
+    hidden_dim: int = 64
+    n_layers: int = 1
+    dropout: float = 0.30
 
 
 @dataclass
 class TrainingConfig:
     batch_size: int = 64
-    learning_rate: float = 1e-3
-    weight_decay: float = 1e-4
+    learning_rate: float = 2e-4
+    weight_decay: float = 5e-4
     epochs: int = 150
     patience: int = 30
     grad_clip: float = 1.0
-    warmup_epochs: int = 3
+    warmup_epochs: int = 5
     train_ratio: float = 0.70
     val_ratio: float = 0.15
     model_dir: str = 'models'

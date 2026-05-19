@@ -75,10 +75,10 @@ def run_epoch(
                 # Gaussian feature noise for robustness
                 x = x + torch.randn_like(x) * 0.01
 
-                # Time masking: zero out ~10% of timesteps
+                # Time masking: zero out ~20% of timesteps
                 if torch.rand(1).item() < 0.5:
                     T = x.size(1)
-                    n_mask = max(1, int(T * 0.10))
+                    n_mask = max(1, int(T * 0.20))
                     mask_start = torch.randint(0, T - n_mask + 1, (1,)).item()
                     x[:, mask_start:mask_start + n_mask, :] = 0.0
 
@@ -148,7 +148,7 @@ def train(
     warmup_steps  = len(train_loader) * cfg.warmup_epochs
     scheduler     = WarmupCosineScheduler(optimizer, warmup_steps, total_steps)
     scaler        = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
-    criterion     = LabelSmoothBCE(smoothing=0.05).to(device)
+    criterion     = LabelSmoothBCE(smoothing=0.10).to(device)
 
     os.makedirs(cfg.model_dir, exist_ok=True)
     checkpoint  = os.path.join(cfg.model_dir, cfg.checkpoint_name)
